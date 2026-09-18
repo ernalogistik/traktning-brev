@@ -19,13 +19,13 @@
         #printLabelArea { display: none; } /* Hidden on screen */
         
         @media print {
-            /* Hide everything else on the page when printing */
-            body * { visibility: hidden; }
+            /* 1. Completely remove the main UI from the print flow */
+            .container { display: none !important; }
             
-            /* Show ONLY the label area */
-            #printLabelArea, #printLabelArea * { visibility: visible; }
+            /* 2. Strip away any default browser margins */
+            body, html { margin: 0; padding: 0; background: white; }
             
-            /* Format the label exactly to 10cm x 2cm */
+            /* 3. Show and format ONLY the label area */
             #printLabelArea {
                 display: flex !important;
                 position: absolute;
@@ -39,12 +39,12 @@
                 align-items: center;
                 justify-content: center;
                 text-align: center;
-                font-size: 14pt; /* Adjust font size as needed */
+                font-size: 28pt; /* Adjust font size as needed */
                 font-family: Arial, sans-serif;
                 font-weight: bold;
             }
             
-            /* Tell the browser the physical page size */
+            /* 4. Tell the browser the physical page size */
             @page { size: 100mm 20mm; margin: 0; }
         }
     </style>
