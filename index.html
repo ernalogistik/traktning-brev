@@ -6,34 +6,54 @@
     <style>
         body { font-family: Arial, sans-serif; padding: 20px; background: #f4f4f4; }
         .container { max-width: 900px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        
-        /* The 4-column search row */
         .search-row { display: flex; gap: 10px; margin-bottom: 20px; }
         .search-row input { flex: 1; padding: 10px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
-        
         #status { color: #d9534f; font-size: 14px; margin-bottom: 15px; font-weight: bold; }
         #status.loaded { color: #5cb85c; }
-
-        /* Clean Table Styling */
         table { width: 100%; border-collapse: collapse; margin-top: 10px; }
         th, td { padding: 12px 10px; text-align: left; border-bottom: 1px solid #ddd; }
         th { background-color: #f8f8f8; font-weight: bold; color: #333; }
         tr:hover { background-color: #eef5fa; cursor: pointer; }
+
+        /* --- NEW PRINT LAYOUT --- */
+        #printLabelArea { display: none; } /* Hidden on screen */
+        
+        @media print {
+            /* Hide everything else on the page when printing */
+            body * { visibility: hidden; }
+            
+            /* Show ONLY the label area */
+            #printLabelArea, #printLabelArea * { visibility: visible; }
+            
+            /* Format the label exactly to 10cm x 2cm */
+            #printLabelArea {
+                display: flex !important;
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100mm;
+                height: 20mm;
+                margin: 0;
+                padding: 2mm;
+                box-sizing: border-box;
+                align-items: center;
+                justify-content: center;
+                text-align: center;
+                font-size: 14pt; /* Adjust font size as needed */
+                font-family: Arial, sans-serif;
+                font-weight: bold;
+            }
+            
+            /* Tell the browser the physical page size */
+            @page { size: 100mm 20mm; margin: 0; }
+        }
     </style>
 </head>
 <body>
-
+<div id="printLabelArea"></div>
 <div class="container">
     <h2>Traktning BREV</h2>
     
-    <!-- Printer Connection UI -->
-    <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 20px; padding: 15px; background: #eef5fa; border-radius: 8px;">
-        <button id="connectPrinterBtn" style="padding: 10px 15px; background: #0275d8; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">
-            Connect Label Printer
-        </button>
-        <span id="printerStatus" style="font-weight: bold; color: #d9534f;">Printer: Not Connected</span>
-    </div>
-
     <div id="status">Verifying security key...</div>
     
     <!-- 4 Search Boxes in one row -->
@@ -62,12 +82,12 @@
 
 <script>
     // ---------------------------------------------------------
-    // 1. SETUP: GOOGLE APPS SCRIPT URL BELOW
+    // SETUP: GOOGLE APPS SCRIPT URL BELOW
     // ---------------------------------------------------------
     const API_URL = 'https://script.google.com/macros/s/AKfycbzDs1st_0Q3nwhrJR77o8N0tjC04ZyRYOcwOead4GWp-sVPyQmlRB5ohFvXo9JbXWnj/exec';
 
     // ---------------------------------------------------------
-    // 2. SECURITY: MAGIC LINK PIN CHECK
+    // SECURITY: MAGIC LINK PIN CHECK
     // ---------------------------------------------------------
     const urlParams = new URLSearchParams(window.location.search);
     const urlKey = urlParams.get('key');
@@ -91,7 +111,7 @@
     document.getElementById('status').innerText = 'Loading database from Google Sheets...';
 
     // ---------------------------------------------------------
-    // 3. DATA FETCHING & FILTERING
+    // DATA FETCHING & FILTERING
     // ---------------------------------------------------------
     let rawData = [];
     let headers = [];
@@ -174,7 +194,7 @@
     }
 
     // ---------------------------------------------------------
-    // 4. CLICK EVENTS & KEYBOARD SHORTCUTS
+    // CLICK EVENTS & KEYBOARD SHORTCUTS
     // ---------------------------------------------------------
     document.getElementById('resultsBody').addEventListener('click', function(e) {
         const row = e.target.closest('tr');
@@ -207,76 +227,24 @@
         }
     });
 
-    // ---------------------------------------------------------
-    // 5. WEBUSB ZEBRA PRINTER LOGIC
-    // ---------------------------------------------------------
-    let printDevice = null;
-
-    document.getElementById('connectPrinterBtn').addEventListener('click', async () => {
-        try {
-            printDevice = await navigator.usb.requestDevice({
-                filters: [{ vendorId: 0x0a5f }] 
-            });
-
-            await printDevice.open();
-
-            if (printDevice.configuration === null) {
-                await printDevice.selectConfiguration(1);
-            }
-            await printDevice.claimInterface(0);
-
-            const statusText = document.getElementById('printerStatus');
-            statusText.innerText = `Printer Connected: ${printDevice.productName}`;
-            statusText.style.color = '#5cb85c'; 
-            
-        } catch (error) {
-            console.error(error);
-            alert('Could not connect to printer. Ensure it is plugged in and turned on.');
-        }
-    });
-
-    async function printLabel(traktString, id) {
-        if (!printDevice) {
-            alert('Please click "Connect Label Printer" first.');
-            return;
-        }
-
-        // ZPL Layout
-        const zpl = `^XA
-^PW800
-^LL160
-^CI28
-^FO20,50
-^A0N,60,25
-^FD${traktString}^FS
-^XZ`;
+    // PRINTING
+    
+    function printLabel(traktString, id) {
+        // 1. Inject the text into our hidden label area
+        document.getElementById('printLabelArea').innerText = traktString;
         
-        const encoder = new TextEncoder();
-        const data = encoder.encode(zpl);
-
-        try {
-            const outEndpoint = printDevice.configuration.interfaces[0].alternates[0].endpoints.find(e => e.direction === 'out');
-            
-            // 1. Send the raw data to the Zebra Printer instantly
-            await printDevice.transferOut(outEndpoint.endpointNumber, data);
-            console.log('Printed successfully');
-            
-            // 2. ONLY if the print succeeds, log the ID to the database via API fetch
-            fetch(`${API_URL}?action=log&id=${encodeURIComponent(id)}&pin=${encodeURIComponent(companyPin)}`)
-                .then(response => response.json())
-                .then(result => {
-                     if(result.status === 'success') {
-                         console.log(`ID ${id} logged successfully.`);
-                     } else {
-                         console.error('Failed to log ID: server returned error or unauthorized.');
-                     }
-                })
-                .catch(err => console.error('Failed to log ID:', err));
-                
-        } catch (error) {
-            console.error('Print failed:', error);
-            alert('Failed to send data to printer.');
-        }
+        // 2. Trigger standard browser print (Kiosk mode will make this silent)
+        window.print();
+        
+        // 3. Log the ID to the database via API fetch
+        fetch(`${API_URL}?action=log&id=${encodeURIComponent(id)}&pin=${encodeURIComponent(companyPin)}`)
+            .then(response => response.json())
+            .then(result => {
+                 if(result.status === 'success') {
+                     console.log(`ID ${id} logged successfully.`);
+                 }
+            })
+            .catch(err => console.error('Failed to log ID:', err));
     }
 </script>
 
