@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Traktning BREV</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #f4f4f4; }
+        .container { max-width: 900px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        
+        /* The 4-column search row */
+        .search-row { display: flex; gap: 10px; margin-bottom: 20px; }
+        .search-row input { flex: 1; padding: 10px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        
+        #status { color: #d9534f; font-size: 14px; margin-bottom: 15px; font-weight: bold; }
+        #status.loaded { color: #5cb85c; }
+
+        /* Clean Table Styling */
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 12px 10px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background-color: #f8f8f8; font-weight: bold; color: #333; }
+        tr:hover { background-color: #eef5fa; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Traktning BREV</h2>
+    
+    <!-- Printer Connection UI -->
+    <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 20px; padding: 15px; background: #eef5fa; border-radius: 8px;">
+        <button id="connectPrinterBtn" style="padding: 10px 15px; background: #0275d8; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">
+            Connect Label Printer
+        </button>
+        <span id="printerStatus" style="font-weight: bold; color: #d9534f;">Printer: Not Connected</span>
+    </div>
+
+    <div id="status">Verifying security key...</div>
+    
+    <!-- 4 Search Boxes in one row -->
+    <div class="search-row">
+        <input type="text" id="sPostort" placeholder="Postort (Alt+1)" disabled>
+        <input type="text" id="sGata" placeholder="Gata (Alt+2)" disabled>
+        <input type="text" id="sNr" placeholder="Nr (Alt+3)" disabled>
+        <input type="text" id="sLittera" placeholder="Littera (Alt+4)" disabled>
+    </div>
+    
+    <!-- Results Table -->
+    <table>
+        <thead>
+            <tr>
+                <th>Postort</th>
+                <th>Gata</th>
+                <th>Nr</th>
+                <th>Littera</th>
+            </tr>
+        </thead>
+        <tbody id="resultsBody">
+            <!-- Filtered rows will appear here -->
+        </tbody>
+    </table>
+</div>
+
+<script>
+    // ---------------------------------------------------------
+    // 1. SETUP: GOOGLE APPS SCRIPT URL BELOW
+    // ---------------------------------------------------------
+    const API_URL = 'https://script.google.com/macros/s/AKfycbzDs1st_0Q3nwhrJR77o8N0tjC04ZyRYOcwOead4GWp-sVPyQmlRB5ohFvXo9JbXWnj/exec';
+
+    // ---------------------------------------------------------
+    // 2. SECURITY: MAGIC LINK PIN CHECK
+    // ---------------------------------------------------------
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlKey = urlParams.get('key');
+
+    // If the URL has a key, save it to the browser's memory
+    if (urlKey) {
+        localStorage.setItem('brevAppPin', urlKey);
+        // Clean up the URL in the address bar so the user doesn't see the key
+        window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
+    // Retrieve the key from memory
+    let companyPin = localStorage.getItem('brevAppPin');
+
+    // If no key is found in the URL or memory, lock the app completely
+    if (!companyPin) {
+        document.getElementById('status').innerText = 'Access Denied: Missing security key. Use the desktop shortcut';
+        throw new Error("Missing security key."); 
+    }
+
+    document.getElementById('status').innerText = 'Loading database from Google Sheets...';
+
+    // ---------------------------------------------------------
+    // 3. DATA FETCHING & FILTERING
+    // ---------------------------------------------------------
+    let rawData = [];
+    let headers = [];
+    let database = [];
+
+    const inputs = [
+        document.getElementById('sPostort'),
+        document.getElementById('sGata'),
+        document.getElementById('sNr'),
+        document.getElementById('sLittera')
+    ];
+
+    // Fetch data using the secret key
+    fetch(`${API_URL}?pin=${encodeURIComponent(companyPin)}`)
+        .then(response => response.json())
+        .then(data => {
+            // Check if Google rejected our PIN
+            if (data.status === 'unauthorized') {
+                document.getElementById('status').innerText = 'Access Denied: Incorrect security key. Please use the official company shortcut.';
+                localStorage.removeItem('brevAppPin'); 
+                return; 
+            }
+            
+            rawData = data;
+            
+            // Separate header row (row 0) from the actual data
+            headers = rawData[0];
+            database = rawData.slice(1);
+            
+            const statusEl = document.getElementById('status');
+            statusEl.innerText = `Database loaded: ${database.length} rows ready.`;
+            statusEl.classList.add('loaded');
+            
+            // Enable inputs and focus the first one
+            inputs.forEach(input => input.disabled = false);
+            inputs[0].focus();
+            
+            renderResults(database);
+        })
+        .catch(error => {
+            document.getElementById('status').innerText = 'Error loading database.';
+            console.error('Fetch error:', error);
+        });
+
+    inputs.forEach(input => {
+        input.addEventListener('input', runFilters);
+    });
+
+    function runFilters() {
+        const vPostort = inputs[0].value.toLowerCase();
+        const vGata = inputs[1].value.toLowerCase();
+        const vNr = inputs[2].value.toLowerCase();
+        const vLittera = inputs[3].value.toLowerCase();
+        
+        const filteredData = database.filter(row => {
+            // Excel mapping: ID=0, Postort=1, Gata=2, Nr=3, Littera=4, TRAKT=5
+            const mPostort = row[1] ? row[1].toString().toLowerCase().includes(vPostort) : (vPostort === "");
+            const mGata    = row[2] ? row[2].toString().toLowerCase().includes(vGata) : (vGata === "");
+            const mNr      = row[3] ? row[3].toString().toLowerCase().includes(vNr) : (vNr === "");
+            const mLittera = row[4] ? row[4].toString().toLowerCase().includes(vLittera) : (vLittera === "");
+            
+            return mPostort && mGata && mNr && mLittera;
+        });
+        
+        renderResults(filteredData);
+    }
+
+    function renderResults(data) {
+        const displayData = data.slice(0, 100); 
+        const tbody = document.getElementById('resultsBody');
+        
+        tbody.innerHTML = displayData.map(row => {
+            return `<tr data-id="${row[0] || ''}" data-trakt="${row[5] || ''}">
+                <td>${row[1] || ''}</td>
+                <td>${row[2] || ''}</td>
+                <td>${row[3] || ''}</td>
+                <td>${row[4] || ''}</td>
+            </tr>`;
+        }).join('');
+    }
+
+    // ---------------------------------------------------------
+    // 4. CLICK EVENTS & KEYBOARD SHORTCUTS
+    // ---------------------------------------------------------
+    document.getElementById('resultsBody').addEventListener('click', function(e) {
+        const row = e.target.closest('tr');
+        if (!row) return; 
+        
+        const id = row.getAttribute('data-id');
+        const trakt = row.getAttribute('data-trakt');
+        
+        // Visual feedback
+        row.style.backgroundColor = '#dff0d8'; 
+        setTimeout(() => { row.style.backgroundColor = ''; }, 2000);
+        
+        console.log(`Ready to print: ID ${id}, TRAKT ${trakt}`);
+        
+        // Trigger print sequence
+        printLabel(trakt, id);
+    });
+
+    document.addEventListener('keydown', function(e) {
+        if (e.altKey && e.key === '1') { e.preventDefault(); inputs[0].focus(); }
+        if (e.altKey && e.key === '2') { e.preventDefault(); inputs[1].focus(); }
+        if (e.altKey && e.key === '3') { e.preventDefault(); inputs[2].focus(); }
+        if (e.altKey && e.key === '4') { e.preventDefault(); inputs[3].focus(); }
+        
+        if (e.altKey && e.key.toLowerCase() === 'c') {
+            e.preventDefault();
+            inputs.forEach(input => input.value = '');
+            runFilters();
+            inputs[0].focus();
+        }
+    });
+
+    // ---------------------------------------------------------
+    // 5. WEBUSB ZEBRA PRINTER LOGIC
+    // ---------------------------------------------------------
+    let printDevice = null;
+
+    document.getElementById('connectPrinterBtn').addEventListener('click', async () => {
+        try {
+            printDevice = await navigator.usb.requestDevice({
+                filters: [{ vendorId: 0x0a5f }] 
+            });
+
+            await printDevice.open();
+
+            if (printDevice.configuration === null) {
+                await printDevice.selectConfiguration(1);
+            }
+            await printDevice.claimInterface(0);
+
+            const statusText = document.getElementById('printerStatus');
+            statusText.innerText = `Printer Connected: ${printDevice.productName}`;
+            statusText.style.color = '#5cb85c'; 
+            
+        } catch (error) {
+            console.error(error);
+            alert('Could not connect to printer. Ensure it is plugged in and turned on.');
+        }
+    });
+
+    async function printLabel(traktString, id) {
+        if (!printDevice) {
+            alert('Please click "Connect Label Printer" first.');
+            return;
+        }
+
+        // ZPL Layout
+        const zpl = `^XA
+^PW800
+^LL160
+^CI28
+^FO20,50
+^A0N,60,25
+^FD${traktString}^FS
+^XZ`;
+        
+        const encoder = new TextEncoder();
+        const data = encoder.encode(zpl);
+
+        try {
+            const outEndpoint = printDevice.configuration.interfaces[0].alternates[0].endpoints.find(e => e.direction === 'out');
+            
+            // 1. Send the raw data to the Zebra Printer instantly
+            await printDevice.transferOut(outEndpoint.endpointNumber, data);
+            console.log('Printed successfully');
+            
+            // 2. ONLY if the print succeeds, log the ID to the database via API fetch
+            fetch(`${API_URL}?action=log&id=${encodeURIComponent(id)}&pin=${encodeURIComponent(companyPin)}`)
+                .then(response => response.json())
+                .then(result => {
+                     if(result.status === 'success') {
+                         console.log(`ID ${id} logged successfully.`);
+                     } else {
+                         console.error('Failed to log ID: server returned error or unauthorized.');
+                     }
+                })
+                .catch(err => console.error('Failed to log ID:', err));
+                
+        } catch (error) {
+            console.error('Print failed:', error);
+            alert('Failed to send data to printer.');
+        }
+    }
+</script>
+
+</body>
+</html>
