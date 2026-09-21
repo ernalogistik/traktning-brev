@@ -52,14 +52,39 @@
 <body>
 <div id="printLabelArea"></div>
 <div class="container">
-    <!-- Header with Recent Prints -->
+    <!-- Header with Recent Prints & Settings -->
     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
         <h2 style="margin: 0;">Traktning BREV</h2>
         <div style="text-align: right; font-size: 13px; color: #555; background: #f8f9fa; padding: 10px; border-radius: 6px; min-width: 250px;">
-            <strong style="color: #333;">Senaste utskrifter:</strong>
-            <ul id="recentList" style="list-style: none; padding: 0; margin: 5px 0 0 0; color: #28a745;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                <strong style="color: #333;">Senaste utskrifter:</strong>
+                <button id="openSettingsBtn" style="background: none; border: none; cursor: pointer; font-size: 16px; padding: 0;" title="Inställningar">⚙️</button>
+            </div>
+            <ul id="recentList" style="list-style: none; padding: 0; margin: 0; color: #28a745;">
                 <li style="color: #999; font-style: italic;">Inga utskrifter än...</li>
             </ul>
+        </div>
+    </div>
+
+    <!-- Settings Modal (Hidden by default) -->
+    <div id="settingsModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
+        <div style="background: white; padding: 25px; border-radius: 8px; width: 500px; max-width: 90%; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
+            <h3 style="margin-top: 0;">Anpassade Snabbkommandon</h3>
+            <p style="font-size: 13px; color: #666; margin-bottom: 20px;">Dessa kortkommandon rensar alla fält, fyller i vald stad och hoppar direkt till "Gata".<br>Klicka i fältet "Tangent" och tryck på din önskade tangent (tex. F4 eller Alt+K).</p>
+            
+            <table style="width: 100%; margin-bottom: 15px; background: transparent;">
+                <thead>
+                    <tr><th style="padding: 5px; text-align: left;">Tangent</th><th style="padding: 5px; text-align: left;">Postort</th><th style="width: 30px;"></th></tr>
+                </thead>
+                <tbody id="hotkeyTableBody">
+                    <!-- JavaScript will generate rows here -->
+                </tbody>
+            </table>
+            
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <button id="addHotkeyBtn" style="padding: 6px 12px; cursor: pointer; background: #eee; border: 1px solid #ccc; border-radius: 4px;">+ Lägg till genväg</button>
+                <button id="closeSettingsBtn" style="padding: 8px 16px; background: #0275d8; color: white; border: none; border-radius: 4px; cursor: pointer;">Spara & Stäng</button>
+            </div>
         </div>
     </div>
     
@@ -214,6 +239,94 @@
         inputs[0].focus();
     }
 
+    // ---------------------------------------------------------
+    // CUSTOM HOTKEY SETTINGS LOGIC
+    // ---------------------------------------------------------
+    let customHotkeys = JSON.parse(localStorage.getItem('brevHotkeys')) || [];
+
+    const settingsModal = document.getElementById('settingsModal');
+    const hotkeyTableBody = document.getElementById('hotkeyTableBody');
+
+    document.getElementById('openSettingsBtn').addEventListener('click', () => {
+        renderHotkeySettings();
+        settingsModal.style.display = 'flex';
+    });
+
+    document.getElementById('closeSettingsBtn').addEventListener('click', () => {
+        saveHotkeys();
+        settingsModal.style.display = 'none';
+        inputs[0].focus();
+    });
+
+    document.getElementById('addHotkeyBtn').addEventListener('click', () => {
+        customHotkeys.push({ key: '', altKey: false, ctrlKey: false, city: '', display: '' });
+        renderHotkeySettings();
+    });
+
+    function renderHotkeySettings() {
+        hotkeyTableBody.innerHTML = '';
+        customHotkeys.forEach((hk, index) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td style="padding: 5px;">
+                    <input type="text" class="hk-key" placeholder="Tryck tangent..." value="${hk.display}" readonly
+                        data-key="${hk.key}" data-alt="${hk.altKey}" data-ctrl="${hk.ctrlKey}"
+                        style="width: 100%; padding: 8px; cursor: pointer; background: #fdfdfd; border: 1px solid #ccc; border-radius: 4px;">
+                </td>
+                <td style="padding: 5px;">
+                    <input type="text" class="hk-city" placeholder="T.ex. Karlstad" value="${hk.city}" 
+                        style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+                </td>
+                <td style="padding: 5px; text-align: right;">
+                    <button onclick="removeHotkey(${index})" style="background: #d9534f; color: white; border: none; border-radius: 4px; padding: 8px 12px; cursor: pointer;">X</button>
+                </td>
+            `;
+            hotkeyTableBody.appendChild(tr);
+
+            // Listen for key presses to "record" the shortcut
+            const keyInput = tr.querySelector('.hk-key');
+            keyInput.addEventListener('keydown', function(e) {
+                e.preventDefault();
+                if (['Alt', 'Control', 'Shift', 'Meta', 'Tab'].includes(e.key)) return; // Ignore bare modifier keys
+                
+                let display = '';
+                if (e.ctrlKey) display += 'Ctrl + ';
+                if (e.altKey) display += 'Alt + ';
+                display += e.key.toUpperCase();
+
+                this.value = display;
+                this.dataset.key = e.key.toLowerCase();
+                this.dataset.alt = e.altKey;
+                this.dataset.ctrl = e.ctrlKey;
+            });
+        });
+    }
+
+    // Must be attached to window so the inline onclick="" in the HTML can see it
+    window.removeHotkey = function(index) {
+        customHotkeys.splice(index, 1);
+        renderHotkeySettings();
+    };
+
+    function saveHotkeys() {
+        const rows = hotkeyTableBody.querySelectorAll('tr');
+        customHotkeys = [];
+        rows.forEach(row => {
+            const keyInput = row.querySelector('.hk-key');
+            const cityInput = row.querySelector('.hk-city');
+            if (keyInput.value && cityInput.value) { // Only save if both boxes are filled
+                customHotkeys.push({
+                    key: keyInput.dataset.key,
+                    altKey: keyInput.dataset.alt === 'true',
+                    ctrlKey: keyInput.dataset.ctrl === 'true',
+                    display: keyInput.value,
+                    city: cityInput.value
+                });
+            }
+        });
+        localStorage.setItem('brevHotkeys', JSON.stringify(customHotkeys));
+    }
+
     document.getElementById('resultsBody').addEventListener('click', function(e) {
         const row = e.target.closest('tr');
         if (!row) return; 
@@ -233,6 +346,25 @@
     });
 
     document.addEventListener('keydown', function(e) {
+        // 1. Suspend app shortcuts if the Settings Modal is open (so they can type cities normally)
+        if (settingsModal.style.display === 'flex') return;
+
+        // 2. Check if the pressed key matches a custom Macro
+        const matchedMacro = customHotkeys.find(h => 
+            e.key.toLowerCase() === h.key && 
+            e.altKey === h.altKey && 
+            e.ctrlKey === h.ctrlKey
+        );
+
+        if (matchedMacro) {
+            e.preventDefault();
+            resetSearch(); // Clears all inputs and runs blank filter
+            inputs[0].value = matchedMacro.city; // Set the Postort
+            runFilters(); // Filter again based on the new city
+            inputs[1].focus(); // Drop the cursor into the "Gata" box
+            return; // Exit the function immediately
+        }
+        
         // Instant print if Enter is pressed and only 1 result remains
         if (e.key === 'Enter' && currentResults.length === 1) {
             e.preventDefault(); 
