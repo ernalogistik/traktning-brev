@@ -52,7 +52,16 @@
 <body>
 <div id="printLabelArea"></div>
 <div class="container">
-    <h2>Traktning BREV</h2>
+    <!-- Header with Recent Prints -->
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
+        <h2 style="margin: 0;">Traktning BREV</h2>
+        <div style="text-align: right; font-size: 13px; color: #555; background: #f8f9fa; padding: 10px; border-radius: 6px; min-width: 250px;">
+            <strong style="color: #333;">Senaste utskrifter:</strong>
+            <ul id="recentList" style="list-style: none; padding: 0; margin: 5px 0 0 0; color: #28a745;">
+                <li style="color: #999; font-style: italic;">Inga utskrifter än...</li>
+            </ul>
+        </div>
+    </div>
     
     <div id="status">Verifying security key...</div>
     
@@ -116,6 +125,7 @@
     let rawData = [];
     let headers = [];
     let database = [];
+    let currentResults = [];
 
     const inputs = [
         document.getElementById('sPostort'),
@@ -166,8 +176,7 @@
         const vNr = inputs[2].value.toLowerCase();
         const vLittera = inputs[3].value.toLowerCase();
         
-        const filteredData = database.filter(row => {
-            // Excel mapping: ID=0, Postort=1, Gata=2, Nr=3, Littera=4, TRAKT=5
+        currentResults = database.filter(row => {
             const mPostort = row[1] ? row[1].toString().toLowerCase().includes(vPostort) : (vPostort === "");
             const mGata    = row[2] ? row[2].toString().toLowerCase().includes(vGata) : (vGata === "");
             const mNr      = row[3] ? row[3].toString().toLowerCase().includes(vNr) : (vNr === "");
@@ -176,7 +185,7 @@
             return mPostort && mGata && mNr && mLittera;
         });
         
-        renderResults(filteredData);
+        renderResults(currentResults);
     }
 
     function renderResults(data) {
@@ -194,8 +203,17 @@
     }
 
     // ---------------------------------------------------------
-    // CLICK EVENTS & KEYBOARD SHORTCUTS
+    // CLICK EVENTS, KEYBOARD SHORTCUTS & RECENT PRINTS
     // ---------------------------------------------------------
+    let recentPrints = [];
+
+    // Helper function to instantly clear boxes and refocus
+    function resetSearch() {
+        inputs.forEach(input => input.value = '');
+        runFilters();
+        inputs[0].focus();
+    }
+
     document.getElementById('resultsBody').addEventListener('click', function(e) {
         const row = e.target.closest('tr');
         if (!row) return; 
@@ -203,17 +221,31 @@
         const id = row.getAttribute('data-id');
         const trakt = row.getAttribute('data-trakt');
         
-        // Visual feedback
-        row.style.backgroundColor = '#dff0d8'; 
-        setTimeout(() => { row.style.backgroundColor = ''; }, 2000);
+        // Grab the text from the table cells to create a readable address
+        const cells = row.querySelectorAll('td');
+        const address = `${cells[0].innerText} ${cells[1].innerText} ${cells[2].innerText} ${cells[3].innerText}`.trim().replace(/\s+/g, ' ');
         
-        console.log(`Ready to print: ID ${id}, TRAKT ${trakt}`);
+        // Trigger print and pass the address string
+        printLabel(trakt, id, address);
         
-        // Trigger print sequence
-        printLabel(trakt, id);
+        // Instantly clear and prepare for the next customer
+        resetSearch();
     });
 
     document.addEventListener('keydown', function(e) {
+        // Instant print if Enter is pressed and only 1 result remains
+        if (e.key === 'Enter' && currentResults.length === 1) {
+            e.preventDefault(); 
+            
+            const row = currentResults[0];
+            const id = row[0];
+            const trakt = row[5];
+            const address = `${row[1] || ''} ${row[2] || ''} ${row[3] || ''} ${row[4] || ''}`.trim().replace(/\s+/g, ' ');
+            
+            printLabel(trakt, id, address);
+            resetSearch();
+        }
+
         if (e.altKey && e.key === '1') { e.preventDefault(); inputs[0].focus(); }
         if (e.altKey && e.key === '2') { e.preventDefault(); inputs[1].focus(); }
         if (e.altKey && e.key === '3') { e.preventDefault(); inputs[2].focus(); }
@@ -221,19 +253,18 @@
         
         if (e.altKey && e.key.toLowerCase() === 'c') {
             e.preventDefault();
-            inputs.forEach(input => input.value = '');
-            runFilters();
-            inputs[0].focus();
+            resetSearch();
         }
     });
 
+    // ---------------------------------------------------------
     // PRINTING
-    
-    function printLabel(traktString, id) {
+    // ---------------------------------------------------------
+    function printLabel(traktString, id, address) {
         // 1. Inject the text into our hidden label area
         document.getElementById('printLabelArea').innerText = traktString;
         
-        // 2. Trigger standard browser print (Kiosk mode will make this silent)
+        // 2. Trigger standard browser print (Kiosk mode makes this silent)
         window.print();
         
         // 3. Log the ID to the database via API fetch
@@ -242,11 +273,17 @@
             .then(result => {
                  if(result.status === 'success') {
                      console.log(`ID ${id} logged successfully.`);
+                     
+                     // 4. Update the "Recent Prints" UI ONLY if the server successfully saved it
+                     recentPrints.unshift(address); // Add to the top of the list
+                     if (recentPrints.length > 3) recentPrints.pop(); // Keep only the last 3
+                     
+                     const listEl = document.getElementById('recentList');
+                     listEl.innerHTML = recentPrints.map(item => `<li style="margin-bottom: 4px;">✓ ${item}</li>`).join('');
                  }
             })
             .catch(err => console.error('Failed to log ID:', err));
     }
 </script>
-
 </body>
 </html>
