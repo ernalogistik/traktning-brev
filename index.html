@@ -54,25 +54,38 @@
 <div class="container">
     <!-- Header with Recent Prints & Settings -->
     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
-        <h2 style="margin: 0;">Traktning BREV</h2>
+        
+        <!-- Left Column: Title and Status -->
+        <div>
+            <h2 style="margin: 0 0 10px 0;">Traktning BREV</h2>
+            <div id="status" style="margin-bottom: 0;">Verifying security key...</div>
+        </div>
+
+        <!-- Right Column: Export, Settings, and Recent List -->
         <div style="font-size: 13px; color: #555; background: #f8f9fa; padding: 10px; border-radius: 6px; min-width: 340px;">
-            
-            <!-- Top Row: Export Button (Left) | Text + Settings (Right) -->
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                <button id="exportBtn" style="padding: 4px 8px; font-size: 12px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">📥 Exportera XML</button>
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
                 
+                <!-- Export Button & Counter Stack -->
+                <div style="display: flex; flex-direction: column; gap: 5px;">
+                    <button id="exportBtn" style="padding: 4px 8px; font-size: 12px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">📥 Exportera XML</button>
+                    <div style="font-size: 11px; display: flex; align-items: center; gap: 5px;">
+                        <button id="refreshCountBtn" style="padding: 2px 4px; font-size: 10px; cursor: pointer; border: 1px solid #ccc; background: white; border-radius: 3px;" title="Hämta antal">🔄 Uppdatera</button>
+                        <span>Redo för export: <strong id="exportCount">?</strong></span>
+                    </div>
+                </div>
+
+                <!-- Settings & List Title Stack -->
                 <div style="display: flex; align-items: center; gap: 8px;">
                     <strong style="color: #333;">Senaste utskrifter:</strong>
                     <button id="openSettingsBtn" style="background: none; border: none; cursor: pointer; font-size: 16px; padding: 0;" title="Inställningar">⚙️</button>
                 </div>
             </div>
             
-            <!-- Bottom Row: Address List (Right Aligned) -->
             <ul id="recentList" style="list-style: none; padding: 0; margin: 0; text-align: right;">
                 <li style="color: #999; font-style: italic;">Inga utskrifter än...</li>
             </ul>
-            
         </div>
+        
     </div>
 
     <!-- Settings Modal (Hidden by default) -->
@@ -96,8 +109,6 @@
             </div>
         </div>
     </div>
-    
-    <div id="status">Verifying security key...</div>
     
     <!-- 4 Search Boxes in one row -->
     <div class="search-row">
@@ -223,7 +234,7 @@
     }
 
     function renderResults(data) {
-        const displayData = data.slice(0, 100); 
+        const displayData = data.slice(0, 30); 
         const tbody = document.getElementById('resultsBody');
         
         tbody.innerHTML = displayData.map(row => {
@@ -449,6 +460,9 @@
                      // Update this specific job to success and redraw the checkmark
                      printJob.status = 'success';
                      renderRecentPrints();
+                     // Auto-increment the counter if it's currently showing a number
+                     const countEl = document.getElementById('exportCount');
+                     if (countEl.innerText !== '?') { countEl.innerText = parseInt(countEl.innerText) + 1; }
                  } else {
                      throw new Error('Server avvisade loggningen.');
                  }
@@ -566,6 +580,30 @@
                 statusEl.innerText = 'Nätverksfel vid export.';
             });
     });
+
+    // ---------------------------------------------------------
+    // EXPORT COUNTER LOGIC
+    // ---------------------------------------------------------
+    document.getElementById('refreshCountBtn').addEventListener('click', () => {
+        const countEl = document.getElementById('exportCount');
+        countEl.innerText = '...'; // Visual feedback while loading
+        
+        fetch(`${API_URL}?action=count&pin=${encodeURIComponent(companyPin)}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    countEl.innerText = data.count;
+                } else {
+                    countEl.innerText = '?';
+                    console.error('Kunde inte hämta antal:', data.message);
+                }
+            })
+            .catch(err => {
+                countEl.innerText = '?';
+                console.error('Nätverksfel vid räkning:', err);
+            });
+    });
+    
 </script>
 </body>
 </html>
