@@ -58,7 +58,10 @@
         <div style="text-align: right; font-size: 13px; color: #555; background: #f8f9fa; padding: 10px; border-radius: 6px; min-width: 250px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
                 <strong style="color: #333;">Senaste utskrifter:</strong>
-                <button id="openSettingsBtn" style="background: none; border: none; cursor: pointer; font-size: 16px; padding: 0;" title="Inställningar">⚙️</button>
+                <div>
+                    <button id="exportBtn" style="padding: 4px 8px; font-size: 12px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;">📥 Exportera XML</button>
+                    <button id="openSettingsBtn" style="background: none; border: none; cursor: pointer; font-size: 16px; padding: 0;" title="Inställningar">⚙️</button>
+                </div>
             </div>
             <ul id="recentList" style="list-style: none; padding: 0; margin: 0; color: #28a745;">
                 <li style="color: #999; font-style: italic;">Inga utskrifter än...</li>
@@ -416,6 +419,108 @@
             })
             .catch(err => console.error('Failed to log ID:', err));
     }
+
+    // ---------------------------------------------------------
+    // XML EXPORT LOGIC
+    // ---------------------------------------------------------
+    
+    function getNextWeekday() {
+        const d = new Date();
+        d.setDate(d.getDate() + 1); // Add 1 day
+        if (d.getDay() === 6) d.setDate(d.getDate() + 2); // If Saturday, add 2 days (Monday)
+        if (d.getDay() === 0) d.setDate(d.getDate() + 1); // If Sunday, add 1 day (Monday)
+        return d.toISOString().split('T')[0]; // Returns YYYY-MM-DD
+    }
+
+    function getFormattedTime() {
+        const d = new Date();
+        const pad = n => n.toString().padStart(2, '0');
+        // Matches <Time>YYYY-MM-DDTHH:MM</Time> format
+        return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+
+    function getFilename() {
+        const d = new Date();
+        const pad = n => n.toString().padStart(2, '0');
+        // Matches brevYYYYMMDDHHMM.xml
+        return `brev${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}${pad(d.getHours())}${pad(d.getMinutes())}.xml`;
+    }
+
+    // Helper to sanitize XML characters
+    function sanitizeXML(str) {
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    }
+
+    document.getElementById('exportBtn').addEventListener('click', () => {
+        // Prompt user for distribution date (Defaults to next weekday)
+        const suggestedDate = getNextWeekday();
+        const distDate = prompt("Ange distributionsdatum (ÅÅÅÅ-MM-DD):", suggestedDate);
+        
+        if (!distDate) return; // Cancel if the user hits ESC or Cancel
+
+        const statusEl = document.getElementById('status');
+        statusEl.innerText = 'Exporterar och arkiverar data...';
+        statusEl.classList.remove('loaded');
+
+        // Fetch the IDs and trigger the archive action on the backend
+        fetch(`${API_URL}?action=export&pin=${encodeURIComponent(companyPin)}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'unauthorized') {
+                    alert('Åtkomst nekad. Kontrollera säkerhetsnyckeln.'); 
+                    return;
+                }
+                if (data.status === 'empty') {
+                    alert('Inga sparade IDn att exportera.');
+                    statusEl.innerText = `Databas redo: ${database.length} rader.`;
+                    statusEl.classList.add('loaded');
+                    return;
+                }
+                if (data.status === 'error') {
+                    alert('Ett serverfel uppstod: ' + data.message); 
+                    return;
+                }
+
+                // Build the XML String
+                const timeStr = getFormattedTime();
+                let xml = `<?xml version="1.0" encoding="utf-8"?>`;
+                xml += `<EDGShownDeliveries><Head><Time>${timeStr}</Time><CustomerSystem>PTJ</CustomerSystem><Product>NWTB</Product><Distribution><Date>${distDate}</Date><No>1</No></Distribution></Head><Data>`;
+                
+                // Loop through the returned rows and format the Delivery nodes
+                data.ids.forEach(row => {
+                    const id = row[0];
+                    if (id !== undefined && id !== "") {
+                        xml += `<Delivery><Qty>1</Qty><Adr><Id>${sanitizeXML(id)}</Id></Adr></Delivery>`;
+                    }
+                });
+                
+                xml += `</Data></EDGShownDeliveries>`;
+
+                // Create an invisible download link and click it
+                const blob = new Blob([xml], { type: 'text/xml' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = getFilename();
+                document.body.appendChild(a);
+                a.click();
+                
+                // Cleanup
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+
+                statusEl.innerText = 'Export lyckades! AdressID-fliken har arkiverats och rensats.';
+                statusEl.style.color = '#5cb85c';
+            })
+            .catch(err => {
+                console.error(err);
+                alert('Nätverksfel vid export. Försök igen.');
+                statusEl.innerText = 'Nätverksfel vid export.';
+            });
+    });
 </script>
 </body>
 </html>
