@@ -55,17 +55,23 @@
     <!-- Header with Recent Prints & Settings -->
     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
         <h2 style="margin: 0;">Traktning BREV</h2>
-        <div style="text-align: right; font-size: 13px; color: #555; background: #f8f9fa; padding: 10px; border-radius: 6px; min-width: 250px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
-                <strong style="color: #333;">Senaste utskrifter:</strong>
-                <div>
-                    <button id="exportBtn" style="padding: 4px 8px; font-size: 12px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;">📥 Exportera XML</button>
+        <div style="font-size: 13px; color: #555; background: #f8f9fa; padding: 10px; border-radius: 6px; min-width: 340px;">
+            
+            <!-- Top Row: Export Button (Left) | Text + Settings (Right) -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <button id="exportBtn" style="padding: 4px 8px; font-size: 12px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">📥 Exportera XML</button>
+                
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <strong style="color: #333;">Senaste utskrifter:</strong>
                     <button id="openSettingsBtn" style="background: none; border: none; cursor: pointer; font-size: 16px; padding: 0;" title="Inställningar">⚙️</button>
                 </div>
             </div>
-            <ul id="recentList" style="list-style: none; padding: 0; margin: 0; color: #28a745;">
+            
+            <!-- Bottom Row: Address List (Right Aligned) -->
+            <ul id="recentList" style="list-style: none; padding: 0; margin: 0; text-align: right;">
                 <li style="color: #999; font-style: italic;">Inga utskrifter än...</li>
             </ul>
+            
         </div>
     </div>
 
@@ -233,7 +239,34 @@
     // ---------------------------------------------------------
     // CLICK EVENTS, KEYBOARD SHORTCUTS & RECENT PRINTS
     // ---------------------------------------------------------
+    
+    // Array of objects to track status: { address: string, status: 'pending'|'success'|'error' }
     let recentPrints = [];
+
+    // Helper function to update the visual list
+    function renderRecentPrints() {
+        const listEl = document.getElementById('recentList');
+        
+        if (recentPrints.length === 0) {
+            listEl.innerHTML = '<li style="color: #999; font-style: italic;">Inga utskrifter än...</li>';
+            return;
+        }
+        
+        listEl.innerHTML = recentPrints.map(job => {
+            let icon = '⏳'; // Pending
+            let color = '#f0ad4e'; // Warning orange
+            
+            if (job.status === 'success') {
+                icon = '✓';
+                color = '#28a745'; // Green
+            } else if (job.status === 'error') {
+                icon = '❌';
+                color = '#d9534f'; // Red
+            }
+            
+            return `<li style="margin-bottom: 4px; color: ${color};">${icon} ${job.address}</li>`;
+        }).join('');
+    }
 
     // Helper function to instantly clear boxes and refocus
     function resetSearch() {
@@ -402,22 +435,34 @@
         // 2. Trigger standard browser print (Kiosk mode makes this silent)
         window.print();
         
-        // 3. Log the ID to the database via API fetch
+        // 3. Optimistic UI Update: Instantly add to list as "pending"
+        const printJob = { address: address, status: 'pending' };
+        recentPrints.unshift(printJob); 
+        if (recentPrints.length > 3) recentPrints.pop(); 
+        renderRecentPrints();
+        
+        // 4. Log the ID to the database via API fetch
         fetch(`${API_URL}?action=log&id=${encodeURIComponent(id)}&pin=${encodeURIComponent(companyPin)}`)
             .then(response => response.json())
             .then(result => {
                  if(result.status === 'success') {
-                     console.log(`ID ${id} logged successfully.`);
-                     
-                     // 4. Update the "Recent Prints" UI ONLY if the server successfully saved it
-                     recentPrints.unshift(address); // Add to the top of the list
-                     if (recentPrints.length > 3) recentPrints.pop(); // Keep only the last 3
-                     
-                     const listEl = document.getElementById('recentList');
-                     listEl.innerHTML = recentPrints.map(item => `<li style="margin-bottom: 4px;">✓ ${item}</li>`).join('');
+                     // Update this specific job to success and redraw the checkmark
+                     printJob.status = 'success';
+                     renderRecentPrints();
+                 } else {
+                     throw new Error('Server avvisade loggningen.');
                  }
             })
-            .catch(err => console.error('Failed to log ID:', err));
+            .catch(err => {
+                console.error('Failed to log ID:', err);
+                
+                // Mark this specific job as failed and redraw the X
+                printJob.status = 'error';
+                renderRecentPrints();
+                
+                // Hard alert blocking the user to warn them of the failure
+                alert(`VARNING: Kunde inte spara adressen till servern!\n\nAdress: ${address}\n\nKontrollera din internetanslutning eller ladda om sidan.`);
+            });
     }
 
     // ---------------------------------------------------------
