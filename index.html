@@ -213,20 +213,47 @@
         input.addEventListener('input', runFilters);
     });
 
+    let currentPrintableRow = null; // Tracks the currently highlighted row
+
     function runFilters() {
         const vPostort = inputs[0].value.toLowerCase();
         const vGata = inputs[1].value.toLowerCase();
         const vNr = inputs[2].value.toLowerCase();
         const vLittera = inputs[3].value.toLowerCase();
         
-        currentResults = database.filter(row => {
+        let exactMatches = [];
+        let partialMatches = [];
+        
+        // Filter the database and split into exact vs partial matches
+        database.forEach(row => {
             const mPostort = row[1] ? row[1].toString().toLowerCase().includes(vPostort) : (vPostort === "");
             const mGata    = row[2] ? row[2].toString().toLowerCase().includes(vGata) : (vGata === "");
             const mNr      = row[3] ? row[3].toString().toLowerCase().includes(vNr) : (vNr === "");
             const mLittera = row[4] ? row[4].toString().toLowerCase().includes(vLittera) : (vLittera === "");
             
-            return mPostort && mGata && mNr && mLittera;
+            if (mPostort && mGata && mNr && mLittera) {
+                // Check if Nr and Littera are perfect matches (if the user typed something in them)
+                const exactNr = (vNr === "" || (row[3] && row[3].toString().toLowerCase() === vNr));
+                const exactLit = (vLittera === "" || (row[4] && row[4].toString().toLowerCase() === vLittera));
+                
+                if ((vNr !== "" || vLittera !== "") && exactNr && exactLit) {
+                    exactMatches.push(row);
+                } else {
+                    partialMatches.push(row);
+                }
+            }
         });
+        
+        // Assemble the list: Exact matches float to the very top
+        currentResults = [...exactMatches, ...partialMatches];
+        
+        // Determine if we have a single entry ready to print
+        currentPrintableRow = null;
+        if (currentResults.length === 1) {
+            currentPrintableRow = currentResults[0]; // Only 1 result total
+        } else if (exactMatches.length === 1) {
+            currentPrintableRow = exactMatches[0]; // Only 1 exact match (even if there are partials)
+        }
         
         renderResults(currentResults);
     }
@@ -236,7 +263,11 @@
         const tbody = document.getElementById('resultsBody');
         
         tbody.innerHTML = displayData.map(row => {
-            return `<tr data-id="${row[0] || ''}" data-trakt="${row[5] || ''}">
+            // Light up the row if it's the exact match ready for printing
+            const isReady = currentPrintableRow && row[0] === currentPrintableRow[0];
+            const highlightStyle = isReady ? 'background-color: #d4edda; font-weight: bold;' : '';
+            
+            return `<tr data-id="${row[0] || ''}" data-trakt="${row[5] || ''}" style="${highlightStyle}">
                 <td>${row[1] || ''}</td>
                 <td>${row[2] || ''}</td>
                 <td>${row[3] || ''}</td>
@@ -410,17 +441,18 @@
             return; // Exit the function immediately
         }
         
-        // Instant print if Enter is pressed and only 1 result remains
-        if (e.key === 'Enter' && currentResults.length === 1) {
+       // Instant print if Enter is pressed and we have a single printable row highlighted
+        if (e.key === 'Enter' && currentPrintableRow) {
             e.preventDefault(); 
             
-            const row = currentResults[0];
+            const row = currentPrintableRow;
             const id = row[0];
             const trakt = row[5];
             const address = `${row[1] || ''} ${row[2] || ''} ${row[3] || ''} ${row[4] || ''}`.trim().replace(/\s+/g, ' ');
             
             printLabel(trakt, id, address);
             resetSearch();
+            return;
         }
 
         if (e.altKey && e.key === '1') { e.preventDefault(); inputs[0].focus(); }
