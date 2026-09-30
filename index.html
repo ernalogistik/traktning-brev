@@ -89,8 +89,19 @@
     <!-- Settings Modal (Hidden by default) -->
     <div id="settingsModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
         <div style="background: white; padding: 25px; border-radius: 8px; width: 500px; max-width: 90%; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
-            <h3 style="margin-top: 0;">Anpassade Snabbkommandon</h3>
-            <p style="font-size: 13px; color: #666; margin-bottom: 20px;">Dessa kortkommandon rensar alla fält, fyller i vald stad och hoppar direkt till "Gata".<br>Klicka i fältet "Tangent" och tryck på din önskade tangent (tex. F4 eller Alt+K).</p>
+            <h3 style="margin-top: 0; margin-bottom: 15px;">Anpassade Snabbkommandon</h3>
+            
+            <!-- Dedicated Clear All Hotkey -->
+            <div style="margin-bottom: 20px; padding: 12px; background: #f9f9f9; border: 1px solid #eee; border-radius: 6px;">
+                <strong style="font-size: 14px; color: #333; display: block; margin-bottom: 5px;">Rensa alla fält & hoppa till Postort</strong>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <input type="text" id="clearHotkeyInput" placeholder="Klicka och tryck tangent..." readonly
+                        style="width: 200px; padding: 8px; cursor: pointer; background: white; border: 1px solid #ccc; border-radius: 4px;">
+                    <button id="removeClearHotkeyBtn" style="background: none; border: none; color: #d9534f; cursor: pointer; font-size: 12px; text-decoration: underline;">Rensa bindning</button>
+                </div>
+            </div>
+
+            <p style="font-size: 13px; color: #666; margin-bottom: 10px;"><b>Stadsspecifika makron:</b> Rensa fält, fyll i vald stad och hoppa direkt till "Gata".</p>
             
             <table style="width: 100%; margin-bottom: 15px; background: transparent;">
                 <thead>
@@ -110,10 +121,10 @@
     
     <!-- 4 Search Boxes in one row -->
     <div class="search-row">
-        <input type="text" id="sPostort" placeholder="Postort (Alt+1)" disabled>
-        <input type="text" id="sGata" placeholder="Gata (Alt+2)" disabled>
-        <input type="text" id="sNr" placeholder="Nr (Alt+3)" disabled>
-        <input type="text" id="sLittera" placeholder="Littera (Alt+4)" disabled>
+        <input type="text" id="sPostort" placeholder="Postort" disabled>
+        <input type="text" id="sGata" placeholder="Gata" disabled>
+        <input type="text" id="sNr" placeholder="Nr" disabled>
+        <input type="text" id="sLittera" placeholder="Littera" disabled>
     </div>
     
     <!-- Results Table -->
@@ -319,19 +330,68 @@
     // CUSTOM HOTKEY SETTINGS LOGIC
     // ---------------------------------------------------------
     let customHotkeys = JSON.parse(localStorage.getItem('brevHotkeys')) || [];
+    let clearAppHotkey = JSON.parse(localStorage.getItem('brevClearHotkey')) || null;
 
     const settingsModal = document.getElementById('settingsModal');
     const hotkeyTableBody = document.getElementById('hotkeyTableBody');
+    const clearHotkeyInput = document.getElementById('clearHotkeyInput');
 
+    // Open Settings: Load saved data into the UI
     document.getElementById('openSettingsBtn').addEventListener('click', () => {
+        if (clearAppHotkey) {
+            clearHotkeyInput.value = clearAppHotkey.display;
+            clearHotkeyInput.dataset.key = clearAppHotkey.key;
+            clearHotkeyInput.dataset.alt = clearAppHotkey.altKey;
+            clearHotkeyInput.dataset.ctrl = clearAppHotkey.ctrlKey;
+        } else {
+            clearHotkeyInput.value = '';
+            clearHotkeyInput.dataset.key = '';
+        }
+        
         renderHotkeySettings();
         settingsModal.style.display = 'flex';
     });
 
+    // Close Settings: Save all data
     document.getElementById('closeSettingsBtn').addEventListener('click', () => {
-        saveHotkeys();
+        // Save the Clear All hotkey
+        if (clearHotkeyInput.dataset.key) {
+            clearAppHotkey = {
+                key: clearHotkeyInput.dataset.key,
+                altKey: clearHotkeyInput.dataset.alt === 'true',
+                ctrlKey: clearHotkeyInput.dataset.ctrl === 'true',
+                display: clearHotkeyInput.value
+            };
+        } else {
+            clearAppHotkey = null;
+        }
+        localStorage.setItem('brevClearHotkey', JSON.stringify(clearAppHotkey));
+
+        saveHotkeys(); // Saves the city macros
         settingsModal.style.display = 'none';
         inputs[0].focus();
+    });
+
+    // Record the specific "Clear All" keystroke
+    clearHotkeyInput.addEventListener('keydown', function(e) {
+        e.preventDefault();
+        if (['Alt', 'Control', 'Shift', 'Meta', 'Tab'].includes(e.key)) return; 
+        
+        let display = '';
+        if (e.ctrlKey) display += 'Ctrl + ';
+        if (e.altKey) display += 'Alt + ';
+        display += e.key.toUpperCase();
+
+        this.value = display;
+        this.dataset.key = e.key.toLowerCase();
+        this.dataset.alt = e.altKey;
+        this.dataset.ctrl = e.ctrlKey;
+    });
+
+    // Unbind the "Clear All" hotkey
+    document.getElementById('removeClearHotkeyBtn').addEventListener('click', () => {
+        clearHotkeyInput.value = '';
+        clearHotkeyInput.dataset.key = '';
     });
 
     document.getElementById('addHotkeyBtn').addEventListener('click', () => {
@@ -422,10 +482,21 @@
     });
 
     document.addEventListener('keydown', function(e) {
-        // 1. Suspend app shortcuts if the Settings Modal is open (so they can type cities normally)
+        // Suspend app shortcuts if the Settings Modal is open
         if (settingsModal.style.display === 'flex') return;
 
-        // 2. Check if the pressed key matches a custom Macro
+        // Check if the pressed key matches the "Clear All" Macro
+        if (clearAppHotkey && 
+            e.key.toLowerCase() === clearAppHotkey.key && 
+            e.altKey === clearAppHotkey.altKey && 
+            e.ctrlKey === clearAppHotkey.ctrlKey) {
+            
+            e.preventDefault();
+            resetSearch();
+            return;
+        }
+
+        // Check if the pressed key matches a City Macro
         const matchedMacro = customHotkeys.find(h => 
             e.key.toLowerCase() === h.key && 
             e.altKey === h.altKey && 
@@ -434,14 +505,14 @@
 
         if (matchedMacro) {
             e.preventDefault();
-            resetSearch(); // Clears all inputs and runs blank filter
-            inputs[0].value = matchedMacro.city; // Set the Postort
-            runFilters(); // Filter again based on the new city
-            inputs[1].focus(); // Drop the cursor into the "Gata" box
-            return; // Exit the function immediately
+            resetSearch(); 
+            inputs[0].value = matchedMacro.city; 
+            runFilters(); 
+            inputs[1].focus(); 
+            return; 
         }
         
-       // Instant print if Enter is pressed and we have a single printable row highlighted
+        // Instant print if Enter is pressed and we have a single printable row highlighted
         if (e.key === 'Enter' && currentPrintableRow) {
             e.preventDefault(); 
             
@@ -453,16 +524,6 @@
             printLabel(trakt, id, address);
             resetSearch();
             return;
-        }
-
-        if (e.altKey && e.key === '1') { e.preventDefault(); inputs[0].focus(); }
-        if (e.altKey && e.key === '2') { e.preventDefault(); inputs[1].focus(); }
-        if (e.altKey && e.key === '3') { e.preventDefault(); inputs[2].focus(); }
-        if (e.altKey && e.key === '4') { e.preventDefault(); inputs[3].focus(); }
-        
-        if (e.altKey && e.key.toLowerCase() === 'c') {
-            e.preventDefault();
-            resetSearch();
         }
     });
 
