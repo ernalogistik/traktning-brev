@@ -209,9 +209,9 @@
             statusEl.innerText = `Database loaded: ${database.length} rows ready.`;
             statusEl.classList.add('loaded');
             
-            // Enable inputs and focus the first one
+            // Enable inputs and focus the Gata input
             inputs.forEach(input => input.disabled = false);
-            inputs[0].focus();
+            inputs[1].focus();
             
             renderResults(database);
         })
@@ -323,7 +323,7 @@
     function resetSearch() {
         inputs.forEach(input => input.value = '');
         runFilters();
-        inputs[0].focus();
+        inputs[1].focus();
     }
 
     // ---------------------------------------------------------
@@ -369,7 +369,7 @@
 
         saveHotkeys(); // Saves the city macros
         settingsModal.style.display = 'none';
-        inputs[0].focus();
+        inputs[1].focus();
     });
 
     // Record the specific "Clear All" keystroke
