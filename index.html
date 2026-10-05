@@ -121,7 +121,7 @@
     
     <!-- 4 Search Boxes in one row -->
     <div class="search-row">
-        <input type="text" id="sPostort" placeholder="Postort" disabled>
+        <input type="text" id="sPostort" placeholder="Postnr/Postort" disabled>
         <input type="text" id="sGata" placeholder="Gata" disabled>
         <input type="text" id="sNr" placeholder="Nr" disabled>
         <input type="text" id="sLittera" placeholder="Littera" disabled>
@@ -211,7 +211,7 @@
             
             // Enable inputs and focus the Gata input
             inputs.forEach(input => input.disabled = false);
-            inputs[1].focus();
+            inputs[0].focus();
             
             renderResults(database);
         })
@@ -224,7 +224,7 @@
         input.addEventListener('input', runFilters);
     });
 
-    let currentPrintableRow = null; // Tracks the currently highlighted row
+    let selectedIndex = 0; // Tracks the currently highlighted row index
 
     function runFilters() {
         const vPostort = inputs[0].value.toLowerCase();
@@ -235,7 +235,6 @@
         let exactMatches = [];
         let partialMatches = [];
         
-        // Filter the database and split into exact vs partial matches
         database.forEach(row => {
             const mPostort = row[1] ? row[1].toString().toLowerCase().includes(vPostort) : (vPostort === "");
             const mGata    = row[2] ? row[2].toString().toLowerCase().includes(vGata) : (vGata === "");
@@ -243,7 +242,6 @@
             const mLittera = row[4] ? row[4].toString().toLowerCase().includes(vLittera) : (vLittera === "");
             
             if (mPostort && mGata && mNr && mLittera) {
-                // Check if Nr and Littera are perfect matches (if the user typed something in them)
                 const exactNr = (vNr === "" || (row[3] && row[3].toString().toLowerCase() === vNr));
                 const exactLit = (vLittera === "" || (row[4] && row[4].toString().toLowerCase() === vLittera));
                 
@@ -258,13 +256,8 @@
         // Assemble the list: Exact matches float to the very top
         currentResults = [...exactMatches, ...partialMatches];
         
-        // Determine if we have a single entry ready to print
-        currentPrintableRow = null;
-        if (currentResults.length === 1) {
-            currentPrintableRow = currentResults[0]; // Only 1 result total
-        } else if (exactMatches.length === 1) {
-            currentPrintableRow = exactMatches[0]; // Only 1 exact match (even if there are partials)
-        }
+        // Always reset selection to the very top entry whenever they type
+        selectedIndex = 0;
         
         renderResults(currentResults);
     }
@@ -273,9 +266,10 @@
         const displayData = data.slice(0, 30); 
         const tbody = document.getElementById('resultsBody');
         
-        tbody.innerHTML = displayData.map(row => {
-            // Light up the row if it's the exact match ready for printing
-            const isReady = currentPrintableRow && row[0] === currentPrintableRow[0];
+        // Pass index to map so we know which row we are rendering
+        tbody.innerHTML = displayData.map((row, index) => {
+            // Light up the row if it's our currently selected index
+            const isReady = (index === selectedIndex);
             const highlightStyle = isReady ? 'background-color: #d4edda; font-weight: bold;' : '';
             
             return `<tr data-id="${row[0] || ''}" data-trakt="${row[5] || ''}" style="${highlightStyle}">
@@ -323,7 +317,7 @@
     function resetSearch() {
         inputs.forEach(input => input.value = '');
         runFilters();
-        inputs[1].focus();
+        inputs[0].focus();
     }
 
     // ---------------------------------------------------------
@@ -369,7 +363,7 @@
 
         saveHotkeys(); // Saves the city macros
         settingsModal.style.display = 'none';
-        inputs[1].focus();
+        inputs[0].focus();
     });
 
     // Record the specific "Clear All" keystroke
@@ -476,9 +470,6 @@
         
         // Trigger print and pass the address string
         printLabel(trakt, id, address);
-        
-        // Instantly clear and prepare for the next customer
-        resetSearch();
     });
 
     document.addEventListener('keydown', function(e) {
@@ -508,21 +499,40 @@
             resetSearch(); 
             inputs[0].value = matchedMacro.city; 
             runFilters(); 
-            inputs[1].focus(); 
+            inputs[1].focus(); // Jump to Gata for city macro
             return; 
         }
+
+        // ARROW KEY NAVIGATION ---
+        if (e.key === 'ArrowDown') {
+            e.preventDefault(); // Stop cursor from moving in text box
+            const maxIndex = Math.min(currentResults.length, 30) - 1;
+            if (selectedIndex < maxIndex) {
+                selectedIndex++;
+                renderResults(currentResults);
+            }
+            return;
+        }
+
+        if (e.key === 'ArrowUp') {
+            e.preventDefault(); 
+            if (selectedIndex > 0) {
+                selectedIndex--;
+                renderResults(currentResults);
+            }
+            return;
+        }
         
-        // Instant print if Enter is pressed and we have a single printable row highlighted
-        if (e.key === 'Enter' && currentPrintableRow) {
+        // Instant print if Enter is pressed and we have at least one result
+        if (e.key === 'Enter' && currentResults.length > 0) {
             e.preventDefault(); 
             
-            const row = currentPrintableRow;
+            const row = currentResults[selectedIndex];
             const id = row[0];
             const trakt = row[5];
             const address = `${row[1] || ''} ${row[2] || ''} ${row[3] || ''} ${row[4] || ''}`.trim().replace(/\s+/g, ' ');
             
             printLabel(trakt, id, address);
-            resetSearch();
             return;
         }
     });
