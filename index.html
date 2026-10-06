@@ -221,7 +221,16 @@
         });
 
     inputs.forEach(input => {
+        // Run filters as they type
         input.addEventListener('input', runFilters);
+
+        // Clear the specific box when clicked
+        input.addEventListener('click', function() {
+            if (this.value !== '') {
+                this.value = '';
+                runFilters();
+            }
+        });
     });
 
     let selectedIndex = 0; // Tracks the currently highlighted row index
@@ -470,6 +479,10 @@
         
         // Trigger print and pass the address string
         printLabel(trakt, id, address);
+
+        // Clear Littera box to prep for the next potential letter on the same street/number
+        inputs[3].value = '';
+        runFilters();
     });
 
     document.addEventListener('keydown', function(e) {
@@ -533,6 +546,10 @@
             const address = `${row[1] || ''} ${row[2] || ''} ${row[3] || ''} ${row[4] || ''}`.trim().replace(/\s+/g, ' ');
             
             printLabel(trakt, id, address);
+
+            // Clear Littera box to prep for the next potential search
+            inputs[3].value = '';
+            runFilters();
             return;
         }
     });
